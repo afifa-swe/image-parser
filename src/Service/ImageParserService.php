@@ -41,19 +41,23 @@ class ImageParserService
         $imageUrls = [];
 
         $crawler->filter('img')->each(function (Crawler $node) use (&$imageUrls, $url) {
-            foreach (['src', 'data-src', 'data-original', 'data-lazy-src'] as $attr) {
+            $best = null;
+            foreach (['data-original', 'data-src', 'data-lazy-src', 'src'] as $attr) {
                 $src = $node->attr($attr);
-                if ($src) {
-                    $resolved = $this->resolveUrl($src, $url);
-                    if ($resolved) {
-                        $imageUrls[] = $resolved;
-                    }
+                if ($src && !str_starts_with(trim($src), 'data:')) {
+                    $best = $src;
+                    break;
                 }
             }
 
-            $srcset = $node->attr('srcset') ?? $node->attr('data-srcset');
+            $srcset = $node->attr('data-srcset') ?? $node->attr('srcset');
             if ($srcset) {
                 $this->parseSrcset($srcset, $url, $imageUrls);
+            } elseif ($best) {
+                $resolved = $this->resolveUrl($best, $url);
+                if ($resolved) {
+                    $imageUrls[] = $resolved;
+                }
             }
         });
 
