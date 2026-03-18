@@ -28,19 +28,40 @@ class ImageParserService
     {
         $response = $this->httpClient->request('GET', $url, [
             'headers' => [
-                'User-Agent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language' => 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                'User-Agent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language' => 'en-US,en;q=0.9,ru;q=0.8',
+                'Connection' => 'keep-alive',
+                'Upgrade-Insecure-Requests' => '1',
+                'Sec-Fetch-Dest' => 'document',
+                'Sec-Fetch-Mode' => 'navigate',
+                'Sec-Fetch-Site' => 'none',
+                'Sec-Fetch-User' => '?1',
+                'Cache-Control' => 'max-age=0',
             ],
             'verify_peer' => false,
-            'max_redirects' => 5,
+            'verify_host' => false,
+            'max_redirects' => 10,
+            'timeout' => 30,
         ]);
-        $html = $response->getContent();
+
+        $statusCode = $response->getStatusCode();
+        if ($statusCode >= 400) {
+            throw new \RuntimeException(sprintf('Сайт вернул ошибку %d. Возможно, сайт блокирует автоматические запросы или страница не существует.', $statusCode));
+        }
+
+        $html = $response->getContent(false);
+
+        if (empty(trim($html))) {
+            throw new \RuntimeException('Сайт вернул пустую страницу.');
+        }
 
         $crawler = new Crawler($html, $url);
         $imageUrls = [];
 
         $crawler->filter('img')->each(function (Crawler $node) use (&$imageUrls, $url) {
+
+
             $best = null;
             foreach (['data-original', 'data-src', 'data-lazy-src', 'src'] as $attr) {
                 $src = $node->attr($attr);
@@ -72,6 +93,41 @@ class ImageParserService
             $href = $node->attr('href');
             if ($href && preg_match('/\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i', $href)) {
                 $resolved = $this->resolveUrl($href, $url);
+                if ($resolved) {
+                    $imageUrls[] = $resolved;
+                }
+            }
+        });
+
+        // Extract background-image URLs from style attributes
+        $crawler->filter('[style]')->each(function (Crawler $node) use (&$imageUrls, $url) {
+            $style = $node->attr('style');
+            if ($style && preg_match_all('/background(?:-image)?\s*:\s*[^;]*url\(\s*[\'"]?([^\'")\s]+)[\'"]?\s*\)/i', $style, $matches)) {
+                foreach ($matches[1] as $src) {
+                    if (!str_starts_with(trim($src), 'data:')) {
+                        $resolved = $this->resolveUrl($src, $url);
+                        if ($resolved) {
+                            $imageUrls[] = $resolved;
+                        }
+                    }
+                }
+            }
+        });
+
+        $crawler->filter('meta[property="og:image"], meta[name="twitter:image"]')->each(function (Crawler $node) use (&$imageUrls, $url) {
+            $content = $node->attr('content');
+            if ($content) {
+                $resolved = $this->resolveUrl($content, $url);
+                if ($resolved) {
+                    $imageUrls[] = $resolved;
+                }
+            }
+        });
+
+        $crawler->filter('video[poster]')->each(function (Crawler $node) use (&$imageUrls, $url) {
+            $poster = $node->attr('poster');
+            if ($poster && !str_starts_with(trim($poster), 'data:')) {
+                $resolved = $this->resolveUrl($poster, $url);
                 if ($resolved) {
                     $imageUrls[] = $resolved;
                 }
@@ -136,13 +192,18 @@ class ImageParserService
 
         $response = $this->httpClient->request('GET', $imageUrl, [
             'headers' => [
-                'User-Agent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
                 'Accept' => 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'Accept-Language' => 'en-US,en;q=0.9',
                 'Referer' => $referer,
+                'Sec-Fetch-Dest' => 'image',
+                'Sec-Fetch-Mode' => 'no-cors',
+                'Sec-Fetch-Site' => 'same-origin',
             ],
             'verify_peer' => false,
-            'timeout' => 15,
-            'max_redirects' => 5,
+            'verify_host' => false,
+            'timeout' => 20,
+            'max_redirects' => 10,
         ]);
 
         $content = $response->getContent(false);

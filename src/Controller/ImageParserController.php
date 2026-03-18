@@ -8,6 +8,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 
 class ImageParserController extends AbstractController
 {
@@ -48,11 +49,34 @@ class ImageParserController extends AbstractController
         try {
             $savedImages = $this->imageParserService->parseAndSaveImages($url, $minWidth, $minHeight, $overlayText);
 
+            if (empty($savedImages)) {
+                return $this->json([
+                    'success' => true,
+                    'count' => 0,
+                    'images' => [],
+                    'message' => 'Изображений, соответствующих заданным параметрам, не найдено.',
+                ]);
+            }
+
             return $this->json([
                 'success' => true,
                 'count' => count($savedImages),
                 'images' => $savedImages,
             ]);
+        } catch (TransportExceptionInterface $e) {
+            $message = $e->getMessage();
+            if (str_contains($message, 'Could not resolve host')) {
+                $error = 'Не удалось найти сайт. Проверьте правильность URL.';
+            } elseif (str_contains($message, 'Connection timed out') || str_contains($message, 'timed out')) {
+                $error = 'Превышено время ожидания ответа от сайта.';
+            } elseif (str_contains($message, 'Connection refused')) {
+                $error = 'Сайт отказал в соединении.';
+            } else {
+                $error = 'Ошибка сети: ' . $message;
+            }
+            return $this->json(['error' => $error], 500);
+        } catch (\RuntimeException $e) {
+            return $this->json(['error' => $e->getMessage()], 500);
         } catch (\Throwable $e) {
             return $this->json(['error' => 'Ошибка при обработке: ' . $e->getMessage()], 500);
         }
