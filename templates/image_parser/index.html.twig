@@ -1,0 +1,147 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Image Parser{% endblock %}
+
+{% block stylesheets %}
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; min-height: 100vh; padding: 20px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    h1 { text-align: center; color: #1a1a2e; margin-bottom: 30px; font-size: 28px; }
+    .form-card { background: #fff; border-radius: 12px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); margin-bottom: 30px; }
+    .form-group { margin-bottom: 18px; }
+    .form-group label { display: block; margin-bottom: 6px; font-weight: 600; color: #333; font-size: 14px; }
+    .form-group input[type="text"],
+    .form-group input[type="url"],
+    .form-group input[type="number"] { width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; transition: border-color 0.2s; }
+    .form-group input:focus { outline: none; border-color: #4a6cf7; box-shadow: 0 0 0 3px rgba(74,108,247,0.1); }
+    .form-row { display: flex; gap: 16px; }
+    .form-row .form-group { flex: 1; }
+    .btn { display: inline-block; padding: 12px 28px; background: #4a6cf7; color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    .btn:hover { background: #3a5ce5; }
+    .btn:disabled { background: #aab; cursor: not-allowed; }
+    .spinner { display: none; margin-left: 10px; }
+    .spinner.active { display: inline-block; }
+    .status { margin-top: 14px; padding: 10px 16px; border-radius: 8px; font-size: 14px; display: none; }
+    .status.success { display: block; background: #d4edda; color: #155724; }
+    .status.error { display: block; background: #f8d7da; color: #721c24; }
+    .status.loading { display: block; background: #cce5ff; color: #004085; }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+    .gallery-item { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.2s; background: #fff; }
+    .gallery-item:hover { transform: translateY(-3px); box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
+    .gallery-item img { width: 100%; height: auto; display: block; }
+    .gallery-title { text-align: center; color: #1a1a2e; margin-bottom: 20px; font-size: 22px; }
+    .no-images { text-align: center; color: #888; padding: 40px; font-size: 16px; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="container">
+    <h1>Image Parser</h1>
+
+    <div class="form-card">
+        <form id="parse-form" action="{{ path('app_parse') }}" method="POST">
+            <div class="form-group">
+                <label for="url">URL страницы</label>
+                <input type="url" id="url" name="url" placeholder="https://example.com" required>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="min_width">Мин. ширина (px)</label>
+                    <input type="number" id="min_width" name="min_width" value="100" min="1">
+                </div>
+                <div class="form-group">
+                    <label for="min_height">Мин. высота (px)</label>
+                    <input type="number" id="min_height" name="min_height" value="100" min="1">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="overlay_text">Текст на изображении</label>
+                <input type="text" id="overlay_text" name="overlay_text" placeholder="Введите текст для наложения">
+            </div>
+
+            <button type="submit" class="btn" id="submit-btn">
+                Загрузить изображения
+                <span class="spinner" id="spinner">⏳</span>
+            </button>
+        </form>
+
+        <div class="status" id="status"></div>
+    </div>
+
+    <h2 class="gallery-title">Сохранённые изображения</h2>
+    <div class="gallery" id="gallery">
+        {% for image in images %}
+            <div class="gallery-item">
+                <img src="{{ path('app_image', {filename: image}) }}" alt="Parsed image" loading="lazy">
+            </div>
+        {% else %}
+            <div class="no-images" id="no-images">Изображений пока нет. Введите URL для парсинга.</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block javascripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var form = document.getElementById('parse-form');
+    if (!form) return;
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        var btn = document.getElementById('submit-btn');
+        var spinner = document.getElementById('spinner');
+        var status = document.getElementById('status');
+        var gallery = document.getElementById('gallery');
+
+        btn.disabled = true;
+        spinner.classList.add('active');
+        status.className = 'status loading';
+        status.textContent = 'Загрузка и обработка изображений... Это может занять некоторое время.';
+
+        var formData = new FormData(form);
+
+        fetch('{{ path("app_parse") }}', {
+            method: 'POST',
+            body: formData
+        })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (data.error) {
+                status.className = 'status error';
+                status.textContent = data.error;
+            } else {
+                status.className = 'status success';
+                status.textContent = 'Найдено и сохранено изображений: ' + data.count;
+
+                var noImages = document.getElementById('no-images');
+                if (noImages) noImages.remove();
+
+                data.images.forEach(function(filename) {
+                    var item = document.createElement('div');
+                    item.className = 'gallery-item';
+                    var img = document.createElement('img');
+                    img.src = '/images/' + filename;
+                    img.alt = 'Parsed image';
+                    img.loading = 'lazy';
+                    item.appendChild(img);
+                    gallery.prepend(item);
+                });
+            }
+        })
+        .catch(function(err) {
+            status.className = 'status error';
+            status.textContent = 'Произошла ошибка: ' + err.message;
+        })
+        .finally(function() {
+            btn.disabled = false;
+            spinner.classList.remove('active');
+        });
+    });
+});
+</script>
+{% endblock %}
