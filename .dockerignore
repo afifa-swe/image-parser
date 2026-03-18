@@ -1,0 +1,6 @@
+.git
+.idea
+var/cache
+var/log
+var/share
+vendor
