@@ -226,15 +226,7 @@ class ImageParserService
             return null;
         }
 
-        $image->scaleDown(height: 200);
-
-        $currentWidth = $image->width();
-        if ($currentWidth > 200) {
-            $cropX = (int)(($currentWidth - 200) / 2);
-            $image->crop(200, 200, $cropX, 0);
-        } else {
-            $image->crop($currentWidth, min(200, $image->height()));
-        }
+        $image->cover(200, 200);
 
         if (!empty($overlayText)) {
             $image->text($overlayText, $image->width() / 2, $image->height() / 2, function ($font) {
